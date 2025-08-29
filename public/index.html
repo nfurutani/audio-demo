@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Frequency-Based Audio Visualizer</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.6.0/lib/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.6.0/lib/addons/p5.sound.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      font-family: 'Arial', sans-serif;
+    }
+    .info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+<div class="info">
+  <div id="bass-level">Bass: 0</div>
+  <div id="mid-level">Mid: 0</div>
+  <div id="treble-level">Treble: 0</div>
+</div>
+<script>
+let audio;
+let isLoaded = false;
+let amplitude;
+let fft;
+
+// 音域別レベル
+let bassLevel = 0;
+let midLevel = 0;
+let trebleLevel = 0;
+
+// 3D図形と効果
+let bassObjects = [];
+let midObjects = [];
+let trebleObjects = [];
+
+// カメラ制御
+let cameraDistance = 300;
+let cameraAngleX = 0;
+let cameraAngleY = 0;
+
+// 環境設定
+let ambientRotation = 0;
+
+function preload() {
+  soundFormats('wav', 'mp3');
+  audio = loadSound('sample.wav', 
+    () => {
+      console.log('Audio loaded successfully');
+      isLoaded = true;
+    },
+    (err) => {
+      console.error('Error loading audio:', err);
+    }
+  );
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  
+  // 音声解析
+  amplitude = new p5.Amplitude();
+  fft = new p5.FFT(0.95, 1024);
+  
+  if (audio) {
+    audio.setVolume(0.7);
+  }
+  
+  // 3D図形オブジェクトを初期化
+  initializeObjects();
+}
+
+function initializeObjects() {
+  bassObjects = [];
+  midObjects = [];
+  trebleObjects = [];
+  
+  // 低音域用の図形（大きな基盤となる図形）
+  for (let i = 0; i < 8; i++) {
+    let angle = (TWO_PI / 8) * i;
+    bassObjects.push({
+      type: 'torus',
+      x: cos(angle) * 200,
+      y: sin(angle) * 200,
+      z: 0,
+      size: 50,
+      baseSize: 50,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 0,
+      color: [180, 60, 80],
+      phase: angle
+    });
+  }
+  
+  // 中音域用の図形（動的な中間層）
+  for (let i = 0; i < 12; i++) {
+    let angle = (TWO_PI / 12) * i;
+    midObjects.push({
+      type: 'box',
+      x: cos(angle) * 120,
+      y: sin(angle) * 120,
+      z: sin(angle * 2) * 60,
+      size: 30,
+      baseSize: 30,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 0,
+      color: [120, 70, 70],
+      phase: angle,
+      orbit: 120
+    });
+  }
+  
+  // 高音域用の図形（細かい装飾的な要素）
+  for (let i = 0; i < 24; i++) {
+    let angle = (TWO_PI / 24) * i;
+    let radius = 60 + (i % 3) * 20;
+    trebleObjects.push({
+      type: 'sphere',
+      x: cos(angle) * radius,
+      y: sin(angle) * radius,
+      z: cos(angle * 3) * 40,
+      size: 10,
+      baseSize: 10,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 0,
+      color: [60, 80, 90],
+      phase: angle,
+      orbit: radius,
+      speed: 1 + (i % 3)
+    });
+  }
+}
+
+function draw() {
+  background(10, 10, 30);
+  
+  if (!isLoaded) {
+    push();
+    // 2D座標系でテキストを描画
+    camera();
+    ortho();
+    resetMatrix();
+    fill(255);
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    text("Loading audio...", 0, 0);
+    pop();
+    return;
+  }
+  
+  let spectrum = [];
+  let level = 0;
+  
+  // 音声が再生中かどうかに関係なく、常に図形を描画
+  if (audio.isPlaying()) {
+    spectrum = fft.analyze();
+    level = amplitude.getLevel();
+    
+    // 周波数帯域を3つに分割
+    analyzeFrequencyBands(spectrum);
+    
+    // カメラを音に反応させる
+    updateCamera(level);
+  } else {
+    // 再生していない時はデフォルト値を設定
+    bassLevel = 0;
+    midLevel = 0;
+    trebleLevel = 0;
+  }
+  
+  // 環境光設定（常に設定）
+  ambientLight(50, 50, 80);
+  directionalLight(150, 150, 200, -1, 0.5, -1);
+  pointLight(200, 150, 100, 0, -200, 200);
+  
+  // カメラ設定（常に設定）
+  let camX = sin(cameraAngleY) * cos(cameraAngleX) * cameraDistance;
+  let camY = sin(cameraAngleX) * cameraDistance;
+  let camZ = cos(cameraAngleY) * cos(cameraAngleX) * cameraDistance;
+  
+  camera(camX, camY, camZ, 0, 0, 0, 0, 1, 0);
+  
+  // 環境の回転
+  rotateY(ambientRotation);
+  
+  // 常に図形を描画
+  drawBassObjects();
+  drawMidObjects();
+  drawTrebleObjects();
+  drawCentralCore(level);
+  
+  // UI情報を更新
+  updateUI();
+  
+  // 再生/一時停止メッセージ
+  if (!audio.isPlaying()) {
+    push();
+    // 2D座標系に戻してテキストを描画
+    camera();
+    ortho();
+    resetMatrix();
+    fill(255, 200);
+    textAlign(CENTER, CENTER);
+    textSize(18);
+    text("Click to play/pause", 0, height/2 - 100);
+    pop();
+  }
+}
+
+function analyzeFrequencyBands(spectrum) {
+  if (!spectrum || spectrum.length === 0) {
+    bassLevel = 0;
+    midLevel = 0;
+    trebleLevel = 0;
+    return;
+  }
+  
+  // 低音域: 0-170Hz (スペクトラムの最初の1/6)
+  let bassSum = 0;
+  let bassCount = Math.floor(spectrum.length / 6);
+  bassCount = Math.max(bassCount, 1); // 最低1を保証
+  
+  for (let i = 0; i < bassCount; i++) {
+    bassSum += spectrum[i] || 0;
+  }
+  bassLevel = (bassSum / bassCount / 255) || 0;
+  
+  // 中音域: 170Hz-4000Hz (スペクトラムの1/6-2/3)
+  let midSum = 0;
+  let midStart = bassCount;
+  let midEnd = Math.floor(spectrum.length * 2/3);
+  let midCount = midEnd - midStart;
+  midCount = Math.max(midCount, 1); // 最低1を保証
+  
+  for (let i = midStart; i < midEnd; i++) {
+    midSum += spectrum[i] || 0;
+  }
+  midLevel = (midSum / midCount / 255) || 0;
+  
+  // 高音域: 4000Hz+ (スペクトラムの残り)
+  let trebleSum = 0;
+  let trebleStart = midEnd;
+  let trebleCount = spectrum.length - trebleStart;
+  trebleCount = Math.max(trebleCount, 1); // 最低1を保証
+  
+  for (let i = trebleStart; i < spectrum.length; i++) {
+    trebleSum += spectrum[i] || 0;
+  }
+  trebleLevel = (trebleSum / trebleCount / 255) || 0;
+  
+  // NaNチェックと範囲制限
+  bassLevel = Math.max(0, Math.min(1, bassLevel)) || 0;
+  midLevel = Math.max(0, Math.min(1, midLevel)) || 0;
+  trebleLevel = Math.max(0, Math.min(1, trebleLevel)) || 0;
+}
+
+function updateCamera(level) {
+  // 全体的な音量でカメラ距離を調整
+  let targetDistance = 200 + level * 200;
+  cameraDistance = lerp(cameraDistance, targetDistance, 0.1);
+  
+  // 低音で水平回転、高音で垂直角度変更
+  cameraAngleY += bassLevel * 0.02;
+  cameraAngleX = sin(frameCount * 0.01) * trebleLevel * 0.5;
+  
+  // 環境全体の回転
+  ambientRotation += midLevel * 0.01;
+}
+
+function drawBassObjects() {
+  // 低音域：大きくて安定した動き
+  for (let i = 0; i < bassObjects.length; i++) {
+    let obj = bassObjects[i];
+    
+    push();
+    
+    // 低音に反応して位置を調整（デフォルト値も含む）
+    let bassReaction = bassLevel * 80;
+    translate(obj.x, obj.y, obj.z + bassReaction);
+    
+    // ゆっくりとした回転（常に少しずつ回転）
+    obj.rotationX += 0.005 + bassLevel * 0.02;
+    obj.rotationY += 0.003 + bassLevel * 0.015;
+    rotateX(obj.rotationX);
+    rotateY(obj.rotationY);
+    
+    // サイズを低音に反応させる（最小サイズを保証）
+    let size = obj.baseSize * (0.8 + bassLevel * 1.5);
+    
+    // 色を低音の強さで変更（最低輝度を保証）
+    let r = obj.color[0] * (0.5 + bassLevel * 0.5);
+    let g = obj.color[1] * (0.5 + bassLevel * 0.5);
+    let b = obj.color[2] * (0.5 + bassLevel * 0.5);
+    
+    // 最低限の明度を保証
+    r = max(r, 50);
+    g = max(g, 30);
+    b = max(b, 40);
+    
+    fill(r, g, b, 180);
+    stroke(r + 30, g + 30, b + 30, 120);
+    strokeWeight(1.5);
+    
+    if (obj.type === 'torus') {
+      torus(size, size/3);
+    }
+    
+    pop();
+  }
+}
+
+function drawMidObjects() {
+  // 中音域：中程度の動きと変形
+  for (let i = 0; i < midObjects.length; i++) {
+    let obj = midObjects[i];
+    
+    push();
+    
+    // 中音に反応して軌道上を移動（常に基本的な動きを保証）
+    let orbitOffset = frameCount * 0.01 + obj.phase;
+    let midReaction = (midLevel || 0) * 40;
+    let x = cos(orbitOffset) * (obj.orbit + midReaction);
+    let y = sin(orbitOffset) * (obj.orbit + midReaction);
+    let z = obj.z + sin(orbitOffset * 2) * (midLevel || 0) * 20;
+    
+    translate(x, y, z);
+    
+    // 中音に反応した回転（常に少しずつ回転）
+    obj.rotationX += 0.01 + (midLevel || 0) * 0.05;
+    obj.rotationY += 0.008 + (midLevel || 0) * 0.03;
+    obj.rotationZ += 0.012 + (midLevel || 0) * 0.04;
+    rotateX(obj.rotationX);
+    rotateY(obj.rotationY);
+    rotateZ(obj.rotationZ);
+    
+    // サイズを中音に反応させる（最小サイズを保証）
+    let size = obj.baseSize * (0.7 + (midLevel || 0) * 1.2);
+    
+    // 色を中音の強さで変更（最低輝度を保証）
+    let r = obj.color[0] * (0.6 + (midLevel || 0) * 0.4);
+    let g = obj.color[1] * (0.6 + (midLevel || 0) * 0.4);
+    let b = obj.color[2] * (0.6 + (midLevel || 0) * 0.4);
+    
+    // 最低限の明度を保証
+    r = max(r, 40);
+    g = max(g, 50);
+    b = max(b, 40);
+    
+    fill(r, g, b, 160);
+    stroke(r + 20, g + 20, b + 20, 100);
+    strokeWeight(1);
+    
+    if (obj.type === 'box') {
+      box(size);
+    }
+    
+    pop();
+  }
+}
+
+function drawTrebleObjects() {
+  // 高音域：速くて細かい動き
+  for (let i = 0; i < trebleObjects.length; i++) {
+    let obj = trebleObjects[i];
+    
+    push();
+    
+    // 高音に反応して高速で軌道移動（常に基本的な動きを保証）
+    let orbitOffset = frameCount * 0.02 * obj.speed + obj.phase;
+    let trebleReaction = (trebleLevel || 0) * 25;
+    let x = cos(orbitOffset) * (obj.orbit + trebleReaction);
+    let y = sin(orbitOffset) * (obj.orbit + trebleReaction);
+    let z = obj.z + sin(orbitOffset * 3) * (trebleLevel || 0) * 15;
+    
+    translate(x, y, z);
+    
+    // 高音に反応した高速回転（常に少しずつ回転）
+    obj.rotationX += 0.02 + (trebleLevel || 0) * 0.08;
+    obj.rotationY += 0.015 + (trebleLevel || 0) * 0.06;
+    rotateX(obj.rotationX);
+    rotateY(obj.rotationY);
+    
+    // サイズを高音に反応させる（最小サイズを保証）
+    let size = obj.baseSize * (0.6 + (trebleLevel || 0) * 2);
+    
+    // 色を高音の強さで変更（最低輝度を保証）
+    let r = obj.color[0] + (trebleLevel || 0) * 80;
+    let g = obj.color[1] + (trebleLevel || 0) * 80;
+    let b = obj.color[2] + (trebleLevel || 0) * 80;
+    
+    // 最低限の明度を保証
+    r = max(r, 30);
+    g = max(g, 40);
+    b = max(b, 50);
+    
+    fill(r, g, b, 120 + (trebleLevel || 0) * 80);
+    stroke(r + 10, g + 10, b + 10, 60);
+    strokeWeight(0.5);
+    
+    if (obj.type === 'sphere') {
+      sphere(size);
+    }
+    
+    pop();
+  }
+}
+
+function drawCentralCore(level) {
+  // 中央のコア：全音域の合成
+  push();
+  
+  // 全音域の合成による回転
+  rotateX(frameCount * 0.01 + bassLevel * 0.1);
+  rotateY(frameCount * 0.015 + midLevel * 0.1);
+  rotateZ(frameCount * 0.008 + trebleLevel * 0.1);
+  
+  // コアのサイズ
+  let coreSize = 40 + level * 60;
+  
+  // 多重構造のコア
+  for (let layer = 0; layer < 3; layer++) {
+    push();
+    rotateY(frameCount * 0.02 * (layer + 1));
+    
+    let layerSize = coreSize * (1 - layer * 0.2);
+    let alpha = 100 - layer * 20;
+    
+    if (layer === 0) {
+      // 外層：全音域反応
+      fill(255, 100 + level * 155, 100 + level * 155, alpha);
+    } else if (layer === 1) {
+      // 中層：中音域反応  
+      fill(100 + midLevel * 155, 255, 100 + midLevel * 155, alpha);
+    } else {
+      // 内層：高音域反応
+      fill(100 + trebleLevel * 155, 100 + trebleLevel * 155, 255, alpha);
+    }
+    
+    noStroke();
+    sphere(layerSize);
+    pop();
+  }
+  
+  pop();
+}
+
+function updateUI() {
+  // HTML要素を更新
+  let bassEl = document.getElementById('bass-level');
+  let midEl = document.getElementById('mid-level');
+  let trebleEl = document.getElementById('treble-level');
+  
+  if (bassEl) bassEl.textContent = `Bass: ${Math.round(bassLevel * 100)}%`;
+  if (midEl) midEl.textContent = `Mid: ${Math.round(midLevel * 100)}%`;
+  if (trebleEl) trebleEl.textContent = `Treble: ${Math.round(trebleLevel * 100)}%`;
+}
+
+function mousePressed() {
+  if (!isLoaded) return;
+  
+  getAudioContext().resume();
+  
+  if (audio.isPlaying()) {
+    audio.pause();
+  } else {
+    audio.play();
+  }
+}
+
+function keyPressed() {
+  if (key === ' ') {
+    // スペースキーで図形を再生成
+    initializeObjects();
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>
