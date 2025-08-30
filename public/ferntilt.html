@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>FernTilt - Audio Reactive 3D</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/addons/p5.sound.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Courier', monospace;
+    }
+    .info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: rgba(0, 255, 0, 0.8);
+      font-size: 14px;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+<div class="info">Click to play/pause</div>
+<script>
+let rotation = 0;
+let cornerElements = [];
+let audio;
+let amplitude;
+let fft;
+let isPlaying = false;
+
+// 音声解析用変数
+let bassLevel = 0;
+let midLevel = 0;
+let trebleLevel = 0;
+
+// 赤い構造物の位置制御用
+let redStructurePhase = 0;
+let redStructureY = 0;
+
+// 緑の支柱の倒れ角度
+let greenPillarAngle = 0;
+let greenPillarPhase = 0;
+
+function preload() {
+  soundFormats('wav');
+  audio = loadSound('/sample.wav');
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  
+  // 音声解析セットアップ
+  amplitude = new p5.Amplitude();
+  fft = new p5.FFT(0.9, 512);
+  
+  // コーナー要素の初期化
+  cornerElements = [
+    { type: 'line', x: -width/2 + 100, y: -height/2 + 100, color: [0, 255, 0] },
+    { type: 'line', x: width/2 - 100, y: -height/2 + 100, color: [255, 0, 0] },
+    { type: 'line', x: -width/2 + 100, y: height/2 - 100, color: [255, 0, 255] },
+    { type: 'line', x: width/2 - 100, y: height/2 - 100, color: [255, 255, 0] }
+  ];
+}
+
+function draw() {
+  // 背景色（固定）
+  background(0, 0, 20);
+  
+  // カメラとライト設定（固定）
+  camera(0, 0, 600, 0, 0, 0, 0, 1, 0);
+  ambientLight(50);
+  directionalLight(255, 255, 255, -0.5, 0.5, -1);
+  
+  // メインの3D構造を描画
+  push();
+  rotateX(-PI/6);
+  rotateY(rotation);
+  rotation += 0.005;
+  
+  // 外側の緑のフレーム構造
+  strokeWeight(4);
+  stroke(100, 255, 100);
+  noFill();
+  
+  // 底面の六角形ベース
+  push();
+  translate(0, 100, 0);
+  rotateX(PI/2);
+  rotateZ(frameCount * 0.01);
+  beginShape();
+  for (let i = 0; i < 6; i++) {
+    let angle = TWO_PI / 6 * i;
+    let x = cos(angle) * 150;
+    let y = sin(angle) * 150;
+    vertex(x, y, 0);
+  }
+  endShape(CLOSE);
+  pop();
+  
+  // 青い立方体フレーム
+  push();
+  // 再生状態で回転方向を変更（速度は同じ）
+  if (isPlaying) {
+    rotateY(-frameCount * 0.01); // 音楽再生中は逆時計回り
+  } else {
+    rotateY(frameCount * 0.01); // 初期状態は時計回り
+  }
+  
+  stroke(0, 0, 255); // 純粋な青
+  strokeWeight(8);
+  noFill();
+  box(120);
+  pop();
+  
+  // 内部の赤い十字構造
+  push();
+  // 音楽再生時のみ上下振動
+  if (isPlaying) {
+    redStructurePhase += 0.02; // 緑の支柱の元の速度
+    redStructureY = sin(redStructurePhase) * 100; // -100から100の範囲で振動
+  } else {
+    redStructureY = 0; // 停止時は中央に固定
+  }
+  translate(0, redStructureY, 0);
+  
+  // 回転なし
+  
+  stroke(255, 100, 100);
+  strokeWeight(6);
+  
+  // 縦の柱
+  let pillarSize = 60;
+  for (let x = -40; x <= 40; x += 80) {
+    for (let z = -40; z <= 40; z += 80) {
+      line(x, -pillarSize, z, x, pillarSize, z);
+    }
+  }
+  
+  // 横の梁
+  for (let y = -40; y <= 40; y += 80) {
+    line(-60, y, 0, 60, y, 0);
+    line(0, y, -60, 0, y, 60);
+  }
+  pop();
+  
+  // 中心の小さな立方体
+  push();
+  fill(255, 50, 50, 150);
+  noStroke();
+  push();
+  rotateX(frameCount * 0.02);
+  rotateY(frameCount * 0.03);
+  box(30);
+  pop();
+  pop();
+  
+  // 外側の緑の支柱（音楽再生時に倒れる）
+  stroke(100, 255, 100);
+  strokeWeight(6);
+  
+  // 音楽再生時に開閉を繰り返す
+  if (isPlaying) {
+    greenPillarPhase += 0.03; // 開閉の速度
+    greenPillarAngle = (sin(greenPillarPhase) + 1) * 0.5 * PI/6; // 0度から30度の間で開閉
+  } else {
+    greenPillarAngle = max(greenPillarAngle - 0.02, 0); // 停止時は元に戻る
+    greenPillarPhase = 0; // フェーズをリセット
+  }
+  
+  for (let i = 0; i < 6; i++) {
+    let angle = TWO_PI / 6 * i;
+    let baseX = cos(angle) * 150;
+    let baseZ = sin(angle) * 150;
+    
+    push();
+    translate(baseX, 0, baseZ);
+    
+    // 放射状に外側に倒れる
+    // 各支柱の角度に応じて回転軸を設定
+    rotateX(sin(angle) * greenPillarAngle);
+    rotateZ(-cos(angle) * greenPillarAngle);
+    
+    // 支柱を描画（原点から上下に伸びる）
+    line(0, -100, 0, 0, 100, 0);
+    pop();
+  }
+  
+  pop();
+  
+  // コーナーのデコレーション線
+  push();
+  camera();
+  for (let elem of cornerElements) {
+    push();
+    translate(elem.x, elem.y, 0);
+    
+    stroke(elem.color);
+    strokeWeight(3);
+    
+    let length = 50 + sin(frameCount * 0.02) * 20;
+    let angleOffset = 0;
+    
+    if (elem.x < 0 && elem.y < 0) {
+      // 左上
+      push();
+      rotate(angleOffset);
+      line(0, 0, length, length);
+      pop();
+    } else if (elem.x > 0 && elem.y < 0) {
+      // 右上
+      push();
+      rotate(-angleOffset);
+      line(0, 0, -length, length);
+      pop();
+    } else if (elem.x < 0 && elem.y > 0) {
+      // 左下
+      push();
+      rotate(-angleOffset);
+      line(0, 0, length, -length);
+      pop();
+    } else {
+      // 右下
+      push();
+      rotate(angleOffset);
+      line(0, 0, -length, -length);
+      pop();
+    }
+    pop();
+  }
+  pop();
+}
+
+function mousePressed() {
+  if (audio.isPlaying()) {
+    audio.pause();
+    isPlaying = false;
+  } else {
+    audio.play();
+    isPlaying = true;
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  
+  // コーナー要素の位置を更新
+  cornerElements[0].x = -width/2 + 100;
+  cornerElements[0].y = -height/2 + 100;
+  cornerElements[1].x = width/2 - 100;
+  cornerElements[1].y = -height/2 + 100;
+  cornerElements[2].x = -width/2 + 100;
+  cornerElements[2].y = height/2 - 100;
+  cornerElements[3].x = width/2 - 100;
+  cornerElements[3].y = height/2 - 100;
+}
+</script>
+</body>
+</html>
