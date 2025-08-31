@@ -67,4 +67,6 @@ typings/
 ecosystem.config.js
 
 # Deployment
-deploy.sh
+deploy.shpublic/*.m4a
+public/*.flac
+public/*.wav
