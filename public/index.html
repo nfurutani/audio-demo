@@ -10,124 +10,23 @@
       position: absolute; top: 10px; left: 10px;
       color: white; font-size: 14px;
     }
+    #filename {
+      position: absolute; top: 30px; left: 10px;
+      color: white; font-size: 12px;
+      font-family: monospace;
+    }
+    #time {
+      position: absolute; top: 50px; left: 10px;
+      color: white; font-size: 14px;
+      font-family: monospace;
+    }
   </style>
 </head>
 <body>
   <div id="ui">Click anywhere to load & play audio</div>
+  <div id="filename"></div>
+  <div id="time"></div>
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-
-  <script>
-  let scene, camera, renderer, plane, analyser, dataArray;
-  let audio, audioContext;
-  let isPlaying = false;
-
-  init();
-  animate();
-
-  function init() {
-    scene = new THREE.Scene();
-
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-    camera.position.z = 5;
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    // 平面ジオメトリ（分割多めにして波打つようにする）
-    let geometry = new THREE.PlaneGeometry(6, 6, 64, 64);
-    let material = new THREE.MeshBasicMaterial({ 
-      color: 0x00ff88,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.8
-    });
-    plane = new THREE.Mesh(geometry, material);
-    scene.add(plane);
-
-    // 音声をロード
-    document.body.addEventListener("click", async () => {
-      if (!analyser) {
-        try {
-          audio = new Audio("/sample.flac");
-          audio.loop = true;
-          audio.crossOrigin = "anonymous";
-          
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          await audioContext.resume();
-          
-          const src = audioContext.createMediaElementSource(audio);
-          analyser = audioContext.createAnalyser();
-          analyser.fftSize = 512;
-          analyser.smoothingTimeConstant = 0.8;
-          
-          src.connect(analyser);
-          analyser.connect(audioContext.destination);
-
-          dataArray = new Uint8Array(analyser.frequencyBinCount);
-          
-          await audio.play();
-          isPlaying = true;
-          document.getElementById("ui").innerText = "Audio playing... Click again to pause";
-        } catch (error) {
-          console.error("Audio error:", error);
-        }
-      } else {
-        // 再生/一時停止の切り替え
-        if (audio.paused) {
-          audio.play();
-          isPlaying = true;
-          document.getElementById("ui").innerText = "Audio playing... Click again to pause";
-        } else {
-          audio.pause();
-          isPlaying = false;
-          document.getElementById("ui").innerText = "Audio paused... Click to resume";
-        }
-      }
-    });
-  }
-
-  function animate() {
-    requestAnimationFrame(animate);
-
-    if (analyser && isPlaying) {
-      analyser.getByteFrequencyData(dataArray);
-
-      // 平面の頂点を音響データに応じて変形
-      const positions = plane.geometry.attributes.position;
-      const positionArray = positions.array;
-      
-      for (let i = 0; i < positions.count; i++) {
-        const x = positionArray[i * 3];
-        const y = positionArray[i * 3 + 1];
-        
-        // 頂点の位置に基づいて周波数データをマッピング
-        const freq = Math.floor((Math.abs(x) + Math.abs(y)) * 10) % dataArray.length;
-        const amplitude = dataArray[freq] / 255.0;
-        
-        // Z軸方向に変形
-        positionArray[i * 3 + 2] = Math.sin(Date.now() * 0.001 + x + y) * amplitude * 2;
-      }
-      
-      positions.needsUpdate = true;
-
-      // 音響データに基づく色の変化
-      const avgAmplitude = dataArray.reduce((a,b) => a+b) / dataArray.length / 255;
-      plane.material.color.setHSL(avgAmplitude * 0.3, 0.8, 0.5 + avgAmplitude * 0.3);
-      
-      // 回転速度も音に反応
-      plane.rotation.z += 0.002 + avgAmplitude * 0.01;
-      plane.rotation.x += 0.001 + avgAmplitude * 0.005;
-    }
-
-    renderer.render(scene, camera);
-  }
-
-  window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-  </script>
+  <script src="main.js"></script>
 </body>
 </html>
