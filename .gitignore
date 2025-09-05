@@ -70,3 +70,4 @@ ecosystem.config.js
 deploy.shpublic/*.m4a
 public/*.flac
 public/*.wav
+public/*.m4a
